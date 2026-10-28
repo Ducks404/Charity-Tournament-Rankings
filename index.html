@@ -83,7 +83,7 @@
 
   document.getElementById("note").textContent =
     "Win = " + POINTS_FOR_WIN + " pts, Draw = " + POINTS_FOR_DRAW + " pt, Loss = " + POINTS_FOR_LOSS +
-    ". Tiebreak: most wins, then name.";
+    ". Tiebreak: most wins, then goal difference.";
 
   // Minimal CSV parser: handles quoted fields, "" escapes, CRLF
   function parseCSV(text) {
@@ -166,7 +166,7 @@
     const table = document.createElement("table");
     table.innerHTML =
       '<thead><tr><th>#</th><th class="team">Team</th>' +
-      '<th>P</th><th>W</th><th>D</th><th>L</th><th>Pts</th></tr></thead>';
+      '<th>MP</th><th>W</th><th>D</th><th>L</th><th>Pts</th></tr></thead>';
     const tbody = document.createElement("tbody");
     table.appendChild(tbody);
     card.appendChild(table);
