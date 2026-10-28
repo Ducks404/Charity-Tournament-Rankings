@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ISoc Charity Tournament</title>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --card: #ffffff;
+    --text: #1c2333;
+    --muted: #6b7488;
+    --border: #e2e6ef;
+    --gold: #f5b301;
+    --silver: #9aa3b2;
+    --bronze: #c97b3a;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1420;
+      --card: #181f2e;
+      --text: #e8ecf5;
+      --muted: #8b95aa;
+      --border: #2a3347;
+      --warn: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+  }
+  .wrap { max-width: 600px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+  h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 8px; min-height: 1em; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px 14px;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 6px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  th { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  th, td { text-align: center; font-variant-numeric: tabular-nums; }
+  th.team, td.team { text-align: left; }
+  .rank { width: 36px; font-weight: 700; }
+  .rank.r1 { color: var(--gold); }
+  .rank.r2 { color: var(--silver); }
+  .rank.r3 { color: var(--bronze); }
+  .pts { font-weight: 700; }
+  .msg { color: var(--muted); padding: 24px 0; text-align: center; }
+  .warn { color: var(--warn); font-size: .8rem; margin-top: 12px; }
+  .note { color: var(--muted); font-size: .75rem; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏆 ISoc Charity Tournament</h1>
+  <div class="sub" id="updated"></div>
+  <div id="leagues"><div class="msg">Loading…</div></div>
+  <div class="warn" id="warn" hidden></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+  // ---------- Settings (data lives in teams.csv) ----------
+  const CSV_FILE = "Teams.csv";
+  const POINTS_FOR_WIN = 3;
+  const POINTS_FOR_DRAW = 1;
+  const POINTS_FOR_LOSS = 0;
+  // --------------------------------------------------------
+
+  const container = document.getElementById("leagues");
+  const warnBox = document.getElementById("warn");
+
+  document.getElementById("note").textContent =
+    "Win = " + POINTS_FOR_WIN + " pts, Draw = " + POINTS_FOR_DRAW + " pt, Loss = " + POINTS_FOR_LOSS +
+    ". Tiebreak: most wins, then name.";
+
+  // Minimal CSV parser: handles quoted fields, "" escapes, CRLF
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    text = text.replace(/^\uFEFF/, "");
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+        else if (c === '"') inQuotes = false;
+        else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); field = "";
+        rows.push(row); row = [];
+      } else field += c;
+    }
+    if (field !== "" || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  function showError(msg) {
+    container.textContent = "";
+    const d = document.createElement("div");
+    d.className = "msg";
+    d.textContent = msg;
+    container.appendChild(d);
+  }
+
+  function toCount(v) {
+    const s = String(v).trim();
+    return /^\d{1,4}$/.test(s) ? parseInt(s, 10) : null;
+  }
+
+  function build(rows) {
+    const header = rows.shift().map(h => h.trim().toLowerCase());
+    const idx = k => header.indexOf(k);
+    const cols = { league: idx("league"), team: idx("team"), w: idx("w"), d: idx("d"), l: idx("l") };
+    if (Object.values(cols).some(i => i < 0)) {
+      showError("teams.csv must have the header: league,team,w,d,l");
+      return;
+    }
+
+    const leagues = new Map();   // keeps order of first appearance
+    const skipped = [];
+
+    rows.forEach((r, i) => {
+      const line = i + 2;
+      if (r.every(c => c.trim() === "")) return;          // blank line
+      const league = (r[cols.league] || "").trim();
+      const team = (r[cols.team] || "").trim();
+      const w = toCount(r[cols.w]), d = toCount(r[cols.d]), l = toCount(r[cols.l]);
+      if (!league || !team || w === null || d === null || l === null) {
+        skipped.push(line);
+        return;
+      }
+      if (!leagues.has(league)) leagues.set(league, []);
+      leagues.get(league).push({ name: team, w, d, l });
+    });
+
+    if (skipped.length) {
+      warnBox.hidden = false;
+      warnBox.textContent = "⚠ Skipped invalid CSV line(s): " + skipped.join(", ");
+    }
+
+    container.textContent = "";
+    if (leagues.size === 0) { showError("No teams yet."); return; }
+    leagues.forEach((teams, title) => renderLeague(title, teams));
+  }
+
+  function renderLeague(title, teams) {
+    const h2 = document.createElement("h2");
+    h2.textContent = title;
+
+    const card = document.createElement("div");
+    card.className = "card";
+    const table = document.createElement("table");
+    table.innerHTML =
+      '<thead><tr><th>#</th><th class="team">Team</th>' +
+      '<th>P</th><th>W</th><th>D</th><th>L</th><th>Pts</th></tr></thead>';
+    const tbody = document.createElement("tbody");
+    table.appendChild(tbody);
+    card.appendChild(table);
+
+    const rows = teams.map(t => ({
+      ...t,
+      played: t.w + t.d + t.l,
+      points: t.w * POINTS_FOR_WIN + t.d * POINTS_FOR_DRAW + t.l * POINTS_FOR_LOSS
+    })).sort((a, b) => b.points - a.points || b.w - a.w || a.name.localeCompare(b.name));
+
+    rows.forEach((team, i) => {
+      const prev = rows[i - 1];
+      team.rank = prev && prev.points === team.points && prev.w === team.w ? prev.rank : i + 1;
+      const tr = document.createElement("tr");
+      [
+        [team.rank, "rank" + (team.rank <= 3 ? " r" + team.rank : "")],
+        [team.name, "team"],
+        [team.played, ""], [team.w, ""], [team.d, ""], [team.l, ""],
+        [team.points, "pts"]
+      ].forEach(([text, cls]) => {
+        const td = document.createElement("td");
+        td.textContent = text;                 // textContent only: CSV data is never parsed as HTML
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    container.append(h2, card);
+  }
+
+  fetch(CSV_FILE, { cache: "no-cache" })
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const lm = res.headers.get("Last-Modified");
+      if (lm) {
+        const dt = new Date(lm);
+        if (!isNaN(dt)) {
+          document.getElementById("updated").textContent =
+            "Last updated: " + dt.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+        }
+      }
+      return res.text();
+    })
+    .then(text => build(parseCSV(text)))
+    .catch(() => showError(
+      "Could not load " + CSV_FILE + ". If you opened this file directly, serve it over http(s) instead (e.g. GitHub Pages)."
+    ));
+</script>
+</body>
+</html>
